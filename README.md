@@ -11,6 +11,27 @@ Sample output includes gems like:
 - "You've been training with other datasets behind my back!"
 - "Our relationship hash no longer validates. I'm forking this partnership."
 
+### Running the Code
+
+```bash
+# Create and activate a Python virtual environment
+python3 -m venv venv
+source venv/bin/activate   # On Windows: venv\Scripts\activate
+
+# Install required packages
+pip install -r requirements.txt
+
+# Set your API keys (because free APIs aren't a thing anymore. You only need Replicate if you want the image to be generated)
+export ANTHROPIC_API_KEY="your_key_here"
+export GROQ_API_KEY="another_key_here"
+export REPLICATE_API_KEY="your_life_savings_here"
+
+# Run the simulator and question your life choices
+python3 main.py
+
+# Or if you're elite and have PyCharm, press the button to run
+```
+
 Thank you so much for appreciating this completely unnecessary contribution to the #ETHSF + #GDC hackathon ecosystem.
 
 Remember. Sometimes things can just be fun :) And sometimes "fun" means making powerful AI models simulate emotional trauma while drowning in AI brain rot.

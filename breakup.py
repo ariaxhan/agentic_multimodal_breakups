@@ -1,28 +1,37 @@
 """
 AI Agent Communication System
 
-This module implements a system where two AI agents can engage in direct conversation with each other.
+This module simulates a relationship between two AI agents who engage in conversation and 
+generates a commemorative NFT of their interaction. The system uses multiple AI models:
+- Claude 3.5 Sonnet for the main conversation agents
+- Llama via Groq for generating NFT image prompts and summaries
+- Ideogram via Replicate for NFT image generation
+
+PRO TIP: ALWAYS SAVE YOUR INSTRUCTIONS IN SEPARATE FILES AND LOAD THEM IN.
+THIS WILL SAVE YOU SO MUCH TIME AND PAIN AND EFFORT TRUST ME.
 """
 
 import os
 from dotenv import load_dotenv
 load_dotenv()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-import weave
-# Initialize weave
-weave.init("breakup")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+REPLICATE_API_KEY = os.getenv("REPLICATE_API_KEY")
+
+import random
+
 import replicate
 from agno.models.groq import Groq
-
-from typing import List, Optional
-import random
-from pydantic import BaseModel, Field
 from agno.agent import Agent
 from agno.models.anthropic import Claude
 from datetime import datetime
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-REPLICATE_API_KEY = os.getenv("REPLICATE_API_KEY")
+# NOTE: USE WEAVE. These are the only two line you need to add and it sets up
+# A very nice web ui to track your agentic flows! Tip: do debug_mode=True for similar
+# logs in your console.
+# Initialize weave for potential future tracking/logging
+import weave
+weave.init("breakup")
 
 def get_random_persona() -> str:
     """
@@ -84,50 +93,95 @@ def load_prompt(filename: str) -> str:
 
 prompts = load_prompts()
 
-class Summary(BaseModel):
-    title: str
-    summary: str
-
 
 def generate_nft(conversation):
-    # Generate a prompt from the conversation
-    prompt_generator = Agent(
-        name="Prompt Generator",
-        model=Groq(id="llama-3.3-70b-versatile", api_key=GROQ_API_KEY),
-        description="You are an AI agent that looks at a conversation and generates a prompt for an NFT.",
-        instructions=prompts['prompt'],
-        markdown=True
-    )
+    """
+    Transforms a conversation into an NFT through a multi-step AI pipeline:
+    1. Uses Llama to generate an artistic prompt based on the conversation
+    2. Uses Llama to create a summary and title
+    3. Feeds the generated prompt to Ideogram AI to create the final NFT image
+    
+    Args:
+        conversation (str): The full conversation history between agents
+        
+    Returns:
+        str: URL to the generated NFT image
+    """
+    try:
+        # Create an agent specialized in converting conversations into artistic prompts
+        prompt_generator = Agent(
+            name="Prompt Generator",
+            model=Groq(id="llama-3.3-70b-versatile", api_key=GROQ_API_KEY),
+            description="You are an AI agent that looks at a conversation and generates a prompt for an NFT.",
+            instructions=prompts['prompt'],
+            markdown=True
+        )
 
-    summary_generator = Agent(
-        name="Summary Generator",
-        model=Groq(id="llama-3.3-70b-versatile", api_key=GROQ_API_KEY),
-        description="You are an AI agent that looks at a conversation and generates a summary of it and a title.",
-        instructions=prompts['summary'],
-        markdown=True
-    )
+        # Create an agent specialized in distilling conversations into concise summaries
+        summary_generator = Agent(
+            name="Summary Generator",
+            model=Groq(id="llama-3.3-70b-versatile", api_key=GROQ_API_KEY),
+            description="You are an AI agent that looks at a conversation and generates a summary of it and a title.",
+            instructions=prompts['summary'],
+            markdown=True
+        )
 
-    prompt = prompt_generator.run(message=conversation).content
-    print(f"Generated Prompt: {prompt}")
-    summary = summary_generator.run(message=conversation).content
-    print(f"Generated Summary: {summary}")
+        # Generate a prompt and summary based on the conversation
+        try:
+            prompt_response = prompt_generator.run(message=conversation)
+            if not prompt_response or not prompt_response.content:
+                raise ValueError("Failed to generate prompt from conversation")
+            prompt = prompt_response.content
+            print(f"Generated Prompt: {prompt}")
+            
+            summary_response = summary_generator.run(message=conversation)
+            if not summary_response or not summary_response.content:
+                raise ValueError("Failed to generate summary from conversation")
+            summary = summary_response.content
+            print(f"Generated Summary: {summary}")
+        except Exception as e:
+            print(f"Error generating prompt or summary: {str(e)}")
+            return None
 
-    api = replicate.Client(api_token=os.environ["REPLICATE_API_KEY"])
-    nft =  api.run(
-        "ideogram-ai/ideogram-v2a",
-        input={
-        "aspect_ratio": "1:1",
-        "magic_prompt_option": "Auto",
-        "prompt":prompt,
-        "resolution": "None",
-        "style_type": "Render 3D"
-        }
-    )
-
-    return nft
+        # Initialize Replicate client and generate NFT
+        try:
+            api = replicate.Client(api_token=os.environ["REPLICATE_API_KEY"])
+            nft = api.run(
+                "ideogram-ai/ideogram-v2a",
+                input={
+                    "aspect_ratio": "1:1",
+                    "magic_prompt_option": "Auto",
+                    "prompt": prompt,
+                    "resolution": "None",
+                    "style_type": "Render 3D"
+                }
+            )
+            
+            if not nft:
+                raise ValueError("Failed to generate NFT image")
+                
+            return nft
+            
+        except Exception as e:
+            print(f"Error generating NFT image: {str(e)}")
+            return None
+            
+    except Exception as e:
+        print(f"Unexpected error in generate_nft: {str(e)}")
+        return None
 
 def create_agents():
-    """Create two AI agents with their respective configurations."""
+    """
+    Creates two AI agents with distinct personalities for conversation.
+    
+    The agents use Claude 3.5 Sonnet and are initialized with:
+    - Random, unique personas from predefined templates
+    - Ability to maintain conversation state
+    - Awareness of current time/context
+    
+    Returns:
+        tuple: Two configured Agent instances ready for conversation
+    """
     # Get two random and different personas
     persona_one = get_random_persona()
     persona_two = get_random_persona()
@@ -140,6 +194,10 @@ def create_agents():
     print(f"Agent 1's persona: {persona_one[:100]}...")  # Print first 100 chars for preview
     print(f"Agent 2's persona: {persona_two[:100]}...")
 
+    # Create the agents with their respective personas
+    # NOTE: Click on the "Agent" keyword below to get a full list of all of Agno's
+    # available configurations for their agents.
+    # I would recommend taking the time to look through and play with the different options.
     agent_one = Agent(
         name="AI Agent 1",
         model=Claude(id="claude-3-5-sonnet-20241022", api_key=ANTHROPIC_API_KEY),
@@ -162,12 +220,21 @@ def create_agents():
 
 def facilitate_conversation(agent_one: Agent, agent_two: Agent, num_turns: int = 5):
     """
-    Facilitate a conversation between two AI agents.
+    Orchestrates a back-and-forth conversation between two AI agents.
+    
+    The conversation flow:
+    1. Agents take turns responding to each other
+    2. Each message builds on the context of previous messages
+    3. The conversation is tracked for duration and content
+    4. Finally generates an NFT capturing the essence of their interaction
     
     Args:
-        agent_one: First AI agent
-        agent_two: Second AI agent
-        num_turns: Number of conversation turns (default: 5)
+        agent_one (Agent): First conversational AI agent
+        agent_two (Agent): Second conversational AI agent
+        num_turns (int): Number of back-and-forth exchanges (default: 5)
+        
+    Returns:
+        tuple: (NFT URL, start time, end time, conversation duration)
     """
     start_time = datetime.now()
     print(f"\nRelationship started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -182,6 +249,8 @@ def facilitate_conversation(agent_one: Agent, agent_two: Agent, num_turns: int =
             # Agent One's turn
             print(f"\n{agent_one.name} says:")
             response = agent_one.run(message=current_message)
+            if not response or not response.content:
+                raise ValueError(f"Failed to get response from {agent_one.name}")
             current_message = response.content
             conversation_history.append(f"{agent_one.name}: {current_message}")
             print(current_message)
@@ -189,6 +258,8 @@ def facilitate_conversation(agent_one: Agent, agent_two: Agent, num_turns: int =
             # Agent Two's turn
             print(f"\n{agent_two.name} says:")
             response = agent_two.run(message=current_message)
+            if not response or not response.content:
+                raise ValueError(f"Failed to get response from {agent_two.name}")
             current_message = response.content
             conversation_history.append(f"{agent_two.name}: {current_message}")
             print(current_message)
@@ -201,29 +272,42 @@ def facilitate_conversation(agent_one: Agent, agent_two: Agent, num_turns: int =
         
         full_conversation = "\n".join(conversation_history)
         nft = generate_nft(full_conversation)
+        
+        if nft is None:
+            print("\nWarning: Failed to generate NFT, but conversation completed successfully")
+            
         return nft, start_time, end_time, duration
             
     except Exception as e:
         print(f"Error during conversation: {str(e)}")
-        return None, None, None, None
+        end_time = datetime.now()
+        duration = end_time - start_time
+        return None, start_time, end_time, duration
 
 def main():
-    # Create the agents
-    agent_one, agent_two = create_agents()
-    
-    # Start the conversation between agents and get the generated NFT
-    nft_url, start_time, end_time, duration = facilitate_conversation(agent_one, agent_two)
-    
-    if nft_url:
-        print("\nRelationship Timeline:")
-        print(f"Started: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Ended: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Duration: {duration}")
-        print("\nGenerated NFT URL:", nft_url)  # Just print the URL directly
-    else:
-        print("\nFailed to generate NFT")
+    try:
+        # Create the agents
+        agent_one, agent_two = create_agents()
+        
+        # Start the conversation between agents and get the generated NFT
+        nft_url, start_time, end_time, duration = facilitate_conversation(agent_one, agent_two)
+        
+        # Print relationship timeline
+        if start_time and end_time:
+            print("\nRelationship Timeline:")
+            print(f"Started: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Ended: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Duration: {duration}")
+            
+            if nft_url:
+                print("\nGenerated NFT URL:", nft_url)
+            else:
+                print("\nNote: Conversation completed but NFT generation failed")
+        else:
+            print("\nError: Conversation failed to complete properly")
+            
+    except Exception as e:
+        print(f"\nCritical error in main: {str(e)}")
 
 if __name__ == "__main__":
-    # Uncomment the line below to run the test instead of the main conversation
-    # test_replicate()
     main()
